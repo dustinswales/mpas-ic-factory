@@ -21,6 +21,7 @@
 #   UNGRIB_SETS   "gfs.2023031015 sst.2023031015 rap.2024020218 rap.2024081518"
 #   SPLIT_SIZE    1900M  part size when a bundle is larger than SPLIT_ABOVE bytes
 #                 (GitHub release assets must be < 2 GiB)
+[ -n "${BASH_VERSION:-}" ] || { echo "ERROR: run with bash: bash $0 ..." >&2; exit 1; }
 set -euo pipefail
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -54,13 +55,20 @@ SPLIT_ABOVE=${SPLIT_ABOVE:-1990000000}   # bytes
 
 tree="$stage/tree"     # layout that scripts/fetch_inputs.sh recreates
 out="$stage/assets"
-rm -rf "$tree" "$out"; mkdir -p "$tree"/{grids,ungrib,aerosols,geog} "$out"
+rm -rf "$tree" "$out"
+for d in "$tree/grids" "$tree/ungrib" "$tree/aerosols" "$tree/geog" "$out"; do
+  mkdir -p "$d" || die "cannot create $d"
+done
 
 # Symlink sources into the tree; tar -h follows the links.
 link_glob() {  # $1 = destination dir, rest = files (must exist)
   local dest=$1; shift
   local f
-  for f in "$@"; do [ -e "$f" ] || die "missing $f"; ln -s "$f" "$dest/"; done
+  [ -d "$dest" ] || die "staging directory $dest does not exist"
+  for f in "$@"; do
+    [ -e "$f" ] || die "missing $f"
+    ln -s "$f" "$dest/$(basename "$f")" || die "cannot link $f into $dest"
+  done
 }
 
 shopt -s nullglob
