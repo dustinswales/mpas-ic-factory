@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       cases:
-        description: 'Cases: "all" or a comma list (case05,case07,...)'
+        description: 'Cases: "all" or a comma list (conus_gfs,...)'
         default: all
         type: string
       mpas_repo:

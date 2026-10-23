@@ -9,7 +9,7 @@
 #   scripts/create_case.sh -c CASE -e INIT_ATMOSPHERE_EXE -i INPUT_DIR -o OUTPUT_DIR [options]
 #
 # Options:
-#   -c CASE        case id from cases.yaml (case05 ... case08)
+#   -c CASE        case id from cases.yaml (e.g., conus_gfs)
 #   -e EXE         init_atmosphere_model executable
 #   -i INPUT_DIR   input tree (see scripts/fetch_inputs.sh):
 #                    grids/<mesh>.grid.nc, grids/<mesh>.graph.info

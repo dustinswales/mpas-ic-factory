@@ -18,7 +18,7 @@
     config_met_prefix = 'RAP'
     config_sfc_prefix = 'SST'
     config_fg_interval = 10800
-    config_landuse_data = 'MODIFIED_IGBP_MODIS_NOAH'
+    config_landuse_data = 'MODI-RUC'
     config_topo_data = 'GMTED2010'
     config_vegfrac_data = 'MODIS'
     config_albedo_data = 'MODIS'

@@ -3,7 +3,7 @@
 
   case_info.py env CASE            shell assignments for scripts/create_case.sh
   case_info.py matrix [CASES]      JSON static/case matrices for GitHub Actions
-                                   CASES: "all" (default) or "case05,case07,..."
+                                   CASES: "all" (default) or "conus_gfs,..."
   case_info.py list                one case id per line
 
 Optional: --file PATH (default: cases.yaml in the repository root).

@@ -10,10 +10,10 @@ Defined in [`cases.yaml`](cases.yaml):
 
 | case | domain | source | date |
 |---|---|---|---|
-| case05 | conus | gfs | 2023-03-10 15Z |
-| case06 | global | gfs | 2023-03-10 15Z |
-| case07 | conus | rap (winter) | 2024-02-02 18Z |
-| case08 | conus | rap (summer) | 2024-08-15 18Z |
+| conus_gfs  | conus  | gfs | 2023-03-10 15Z |
+| global_gfs | global | gfs | 2023-03-10 15Z |
+| conus_rapw | conus  | rap (winter) | 2024-02-02 18Z |
+| conus_raps | conus  | rap (summer) | 2024-08-15 18Z |
 
 All cases use the 120 km mesh (`x1.40962` global, `conus.120km` regional) and climatological aerosols. `init_atmosphere_model` is built from `ufs-community/MPAS-Model@noaa/develop` by default; change the default in `cases.yaml`, or override it per run.
 
@@ -34,7 +34,7 @@ Compared with `mpas_testcase`, the `gsl.gsl.` part is dropped from the directory
 
 Actions → **Create MPAS cases** → *Run workflow*. The inputs are:
 
-- **cases**: `all` or a comma list, e.g. `case05,case07`.
+- **cases**: `all` or a comma list, e.g. `conus_gfs,...`.
 - **mpas_repo / mpas_ref**: any fork plus a branch, tag or SHA. Use these to test a PR branch.
 - **inputs_tag**: the release holding the input bundles (see below).
 - **baseline_tag**: a previously published release to compare against with `nccmp -dsSqf`. The result appears in the run summary.
@@ -79,7 +79,7 @@ conda env create -f env/environment.yml && conda activate mpas-ic   # or your ow
 scripts/build_init_atmosphere.sh /path/to/MPAS-Model bin/init_atmosphere_model
 scripts/fetch_inputs.sh -r OWNER/mpas-ic-factory -t inputs-v1 -d inputs \
     grids geog aerosols ungrib-gfs.2023031015 ungrib-sst.2023031015
-scripts/create_case.sh -c case05 -e bin/init_atmosphere_model -i inputs -o cases -n 8
+scripts/create_case.sh -c conus_gfs -e bin/init_atmosphere_model -i inputs -o cases -n 8
 ```
 
 `create_case.sh` takes the launcher from `MPIRUN` (default `mpirun -n`; `MPIRUN="srun -n"` under Slurm). Other options:
