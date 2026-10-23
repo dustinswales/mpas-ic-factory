@@ -14,6 +14,11 @@ set -euo pipefail
 
 src=${1:?usage: $0 SRC_DIR [OUT_EXE]}
 out=${2:-}
+# Resolve OUT_EXE against the caller's directory before changing into SRC_DIR.
+if [ -n "$out" ]; then
+  mkdir -p "$(dirname "$out")"
+  out="$(cd "$(dirname "$out")" && pwd)/$(basename "$out")"
+fi
 prefix=${CONDA_PREFIX:-/usr}
 export NETCDF=${NETCDF:-$prefix}
 export PNETCDF=${PNETCDF:-$prefix}

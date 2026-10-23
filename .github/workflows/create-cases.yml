@@ -137,6 +137,7 @@ jobs:
         run: scripts/build_init_atmosphere.sh mpas-src bin/init_atmosphere_model
       - name: Record build info
         run: |
+          test -x bin/init_atmosphere_model || { echo "ERROR: bin/init_atmosphere_model missing"; exit 1; }
           {
             echo "code_base:          ${{ matrix.code_base }}"
             echo "code repo:          ${{ matrix.repo }}"
