@@ -1,0 +1,20 @@
+name: Set up MPAS toolchain
+description: conda-forge GNU compilers, MPICH, netCDF/PnetCDF, metis and nccmp via micromamba
+runs:
+  using: composite
+  steps:
+    - uses: mamba-org/setup-micromamba@v2
+      with:
+        environment-file: env/environment.yml
+        cache-environment: true
+        cache-environment-key: env-${{ runner.os }}-${{ hashFiles('env/environment.yml') }}
+        init-shell: bash
+    - name: Export toolchain settings
+      shell: bash -el {0}
+      run: |
+        echo "NETCDF=$CONDA_PREFIX" >> "$GITHUB_ENV"
+        echo "PNETCDF=$CONDA_PREFIX" >> "$GITHUB_ENV"
+        echo "MPIRUN=mpiexec -n" >> "$GITHUB_ENV"
+        echo "NTASKS=$(nproc)" >> "$GITHUB_ENV"
+        mpif90 --version | head -1
+        mpiexec --version | head -2

@@ -1,0 +1,18 @@
+# Toolchain to build and run init_atmosphere_model on a GitHub-hosted runner
+# (or any Linux box): conda-forge GNU compilers, MPICH, parallel netCDF/PnetCDF.
+name: mpas-ic
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pyyaml
+  - make
+  - gcc=14
+  - gxx=14
+  - gfortran=14
+  - mpich
+  - libnetcdf=*=mpi_mpich_*
+  - netcdf-fortran=*=mpi_mpich_*
+  - libpnetcdf=*=mpi_mpich_*
+  - metis
+  - nccmp

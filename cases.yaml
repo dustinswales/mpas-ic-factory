@@ -1,0 +1,50 @@
+# MPAS IC factory case definitions.
+#
+# Each case produces, under <outdir>/<case_dir>/case_files/:
+#   mpas.<code_base>.<namelist>.<domain>.<resolution>.static.nc
+#   mpas.<code_base>.<namelist>.<domain>.<resolution>.ugwp_oro_data.nc          (gsl namelist only)
+#   mpas.<code_base>.<namelist>.<domain>.<resolution>.<source>.init.<date>.nc
+#   mpas.<code_base>.<namelist>.<domain>.<resolution>.<source>.lbc.<date>.nc       (conus only)
+#   mpas.<code_base>.<namelist>.<domain>.<resolution>.<source>.sfc_update.<date>.nc (gfs only)
+# with <case_dir> = <code_base>.<namelist>.<domain>.<resolution>.<source>.<yyyymmddhh>
+# (same names as barlage/mpas_testcase create_case).
+
+# Initial times of the input data. "season" picks the rap date.
+dates:
+  gfs: "2023031015"
+  rap:
+    winter: "2024020218"
+    summer: "2024081518"
+
+# Mesh file stem per domain and resolution: <stem>.grid.nc and <stem>.graph.info
+# must be in the grids input bundle.
+meshes:
+  global:
+    120km: x1.40962
+  conus:
+    120km: conus.120km
+
+# Code bases: which git repository builds init_atmosphere_model.
+# Defaults; the workflow inputs can override repo and ref.
+code_bases:
+  ncar:
+    repo: MPAS-Dev/MPAS-Model
+    ref: v8.3.0
+  gsl:
+    repo: ufs-community/MPAS-Model
+    ref: noaa/develop
+
+# Supported combinations (create_mpas_testcase_case01..08.sh).
+cases:
+  case01: {code_base: ncar, namelist: ncar, domain: conus,  resolution: 120km, source: gfs}
+  case02: {code_base: ncar, namelist: ncar, domain: global, resolution: 120km, source: gfs}
+  case03: {code_base: gsl,  namelist: ncar, domain: conus,  resolution: 120km, source: gfs}
+  case04: {code_base: gsl,  namelist: ncar, domain: global, resolution: 120km, source: gfs}
+  case05: {code_base: gsl,  namelist: gsl,  domain: conus,  resolution: 120km, source: gfs}
+  case06: {code_base: gsl,  namelist: gsl,  domain: global, resolution: 120km, source: gfs}
+  case07: {code_base: gsl,  namelist: gsl,  domain: conus,  resolution: 120km, source: rap, season: winter}
+  case08: {code_base: gsl,  namelist: gsl,  domain: conus,  resolution: 120km, source: rap, season: summer}
+
+# Defaults applied to every case unless the case sets them.
+defaults:
+  use_climo_aerosols: true

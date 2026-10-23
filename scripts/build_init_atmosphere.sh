@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+#
+# Build init_atmosphere_model from an MPAS-Model checkout with GNU compilers.
+#
+# Usage:
+#   scripts/build_init_atmosphere.sh SRC_DIR [OUT_EXE]
+#
+# Environment:
+#   NETCDF, PNETCDF   library prefixes (default: $CONDA_PREFIX)
+#   PRECISION         "single" (MPAS default) or "double"
+#   DEBUG             "true" for a debug build
+#   MAKE_JOBS         parallel make jobs (default: nproc)
+set -euo pipefail
+
+src=${1:?usage: $0 SRC_DIR [OUT_EXE]}
+out=${2:-}
+prefix=${CONDA_PREFIX:-/usr}
+export NETCDF=${NETCDF:-$prefix}
+export PNETCDF=${PNETCDF:-$prefix}
+precision=${PRECISION:-single}
+jobs=${MAKE_JOBS:-$(nproc)}
+
+cd "$src"
+make_args=(gfortran CORE=init_atmosphere PRECISION="$precision" AUTOCLEAN=true)
+[ "${DEBUG:-false}" = "true" ] && make_args+=(DEBUG=true)
+
+echo "Building init_atmosphere in $src: ${make_args[*]} (NETCDF=$NETCDF PNETCDF=$PNETCDF)"
+mpif90 --version | head -1
+make -j"$jobs" "${make_args[@]}" 2>&1 | tee build.log | grep -E "^(\*|ERROR|Error|make.*Error)" || true
+[ -x init_atmosphere_model ] || { echo "ERROR: build failed"; tail -60 build.log; exit 1; }
+
+if [ -n "$out" ]; then
+  mkdir -p "$(dirname "$out")"
+  cp init_atmosphere_model "$out"
+fi
+echo "Built: $src/init_atmosphere_model"

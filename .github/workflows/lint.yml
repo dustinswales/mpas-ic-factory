@@ -1,0 +1,39 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Case definitions
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 scripts/case_info.py matrix all | jq .
+          for c in $(python3 scripts/case_info.py list); do python3 scripts/case_info.py env "$c" > /dev/null; done
+          # every case has the namelists it needs
+          for c in $(python3 scripts/case_info.py list); do
+            eval "$(python3 scripts/case_info.py env "$c")"
+            for s in step2_init step3_lbc step4_sst; do
+              [ "$s" = step3_lbc ] && [ "$domain" != conus ] && continue
+              [ "$s" = step4_sst ] && [ "$source" != gfs ] && continue
+              test -f "case_files/$namelist/$s/$source.$date/namelist.init_atmosphere" \
+                || { echo "missing case_files/$namelist/$s/$source.$date for $c"; exit 1; }
+            done
+          done
+      - name: shellcheck
+        run: shellcheck -S warning scripts/*.sh tools/*.sh
+      - name: actionlint
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color

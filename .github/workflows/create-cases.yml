@@ -1,0 +1,310 @@
+name: Create MPAS cases
+
+# Builds init_atmosphere_model for each code base, makes (or reuses) the static
+# files, then the init / lbc / sfc_update files for each case in cases.yaml.
+# Optionally compares against a baseline release and publishes a new one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: 'Cases: "all" or a comma list (case01,case05,...)'
+        default: all
+        type: string
+      ncar_repo:
+        description: NCAR code repo (blank = cases.yaml default)
+        default: ''
+        type: string
+      ncar_ref:
+        description: NCAR branch / tag / SHA (blank = cases.yaml default)
+        default: ''
+        type: string
+      gsl_repo:
+        description: GSL code repo (blank = cases.yaml default)
+        default: ''
+        type: string
+      gsl_ref:
+        description: GSL branch / tag / SHA (blank = cases.yaml default)
+        default: ''
+        type: string
+      inputs_tag:
+        description: Release tag holding the input bundles
+        default: inputs-v1
+        type: string
+      baseline_tag:
+        description: Release tag of baseline cases to compare with (blank = no comparison)
+        default: ''
+        type: string
+      publish_tag:
+        description: Publish the cases as this new release tag (blank = artifacts only)
+        default: ''
+        type: string
+      precision:
+        description: init_atmosphere real precision
+        default: single
+        type: choice
+        options: [single, double]
+      debug:
+        description: Debug build (bounds and FPE checks)
+        default: false
+        type: boolean
+
+concurrency:
+  group: create-cases-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+env:
+  INPUTS_REPO: ${{ github.repository }}
+  INPUTS_TAG: ${{ inputs.inputs_tag }}
+  PRECISION: ${{ inputs.precision }}
+  DEBUG: ${{ inputs.debug }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      builds: ${{ steps.plan.outputs.builds }}
+      shas: ${{ steps.plan.outputs.shas }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Plan cases and resolve code refs
+        id: plan
+        env:
+          CASES: ${{ inputs.cases }}
+          NCAR_REPO: ${{ inputs.ncar_repo }}
+          NCAR_REF: ${{ inputs.ncar_ref }}
+          GSL_REPO: ${{ inputs.gsl_repo }}
+          GSL_REF: ${{ inputs.gsl_ref }}
+        run: |
+          python3 -m pip install --quiet pyyaml
+          matrix=$(python3 scripts/case_info.py matrix "$CASES")
+          refs=$(python3 scripts/resolve_refs.py "$matrix")
+          {
+            echo "matrix=$matrix"
+            echo "builds=$(jq -c .builds <<< "$refs")"
+            echo "shas=$(jq -c .shas <<< "$refs")"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Plan"
+            echo
+            echo "| code base | repo | ref | commit |"
+            echo "|---|---|---|---|"
+            jq -r '.builds[] | "| \(.code_base) | \(.repo) | \(.ref) | \(.sha[0:10]) |"' <<< "$refs"
+            echo
+            echo "Cases: $(jq -r '[.cases[].case_id] | join(", ")' <<< "$matrix")"
+            echo "Inputs: $INPUTS_REPO@$INPUTS_TAG, precision $PRECISION, debug $DEBUG"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: setup
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.setup.outputs.builds) }}
+    name: build (${{ matrix.code_base }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+      - name: Restore executable
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: bin/init_atmosphere_model
+          key: exe-v1-${{ matrix.sha }}-${{ inputs.precision }}-${{ inputs.debug }}-${{ hashFiles('env/environment.yml', 'scripts/build_init_atmosphere.sh') }}
+      - name: Check out ${{ matrix.repo }}@${{ matrix.ref }}
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ matrix.sha }}
+          path: mpas-src
+          submodules: recursive
+      - name: Build init_atmosphere_model
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: scripts/build_init_atmosphere.sh mpas-src bin/init_atmosphere_model
+      - name: Record build info
+        run: |
+          {
+            echo "code_base:          ${{ matrix.code_base }}"
+            echo "code repo:          ${{ matrix.repo }}"
+            echo "code ref:           ${{ matrix.ref }}"
+            echo "code commit:        ${{ matrix.sha }}"
+            echo "precision:          $PRECISION   debug: $DEBUG"
+            echo "compiler:           $(gfortran --version | head -1)"
+            echo "mpi:                $(mpichversion 2>/dev/null | head -1 || mpiexec --version | head -1)"
+            echo "netcdf-c:           $(nc-config --version)"
+            echo "netcdf-fortran:     $(nf-config --version)"
+            echo "pnetcdf:            $(pnetcdf-config --version 2>/dev/null || echo unknown)"
+            echo "factory commit:     ${{ github.repository }}@${{ github.sha }}"
+            echo "workflow run:       ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } > bin/build-info.txt
+          cat bin/build-info.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exe-${{ matrix.code_base }}
+          path: bin/
+          retention-days: 7
+
+  static:
+    needs: [setup, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.setup.outputs.matrix).statics }}
+    name: static (${{ matrix.static_key }})
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore static files
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: static/
+          key: static-v1-${{ matrix.static_key }}-${{ fromJSON(needs.setup.outputs.shas)[matrix.code_base] }}-${{ inputs.precision }}-${{ inputs.inputs_tag }}-${{ hashFiles(format('case_files/{0}/step1_static/*', matrix.namelist), 'env/environment.yml') }}
+      - name: Free disk space for geographic data
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+      - uses: ./.github/actions/setup-env
+        if: steps.cache.outputs.cache-hit != 'true'
+      - uses: actions/download-artifact@v4
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          name: exe-${{ matrix.code_base }}
+          path: bin/
+      - name: Fetch grids and geographic data
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: scripts/fetch_inputs.sh -r "$INPUTS_REPO" -t "$INPUTS_TAG" -d inputs grids geog
+      - name: Create static file
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          chmod +x bin/init_atmosphere_model
+          cp bin/build-info.txt describe-extra.txt
+          DESCRIBE_EXTRA=$PWD/describe-extra.txt \
+            scripts/create_case.sh -c ${{ matrix.case_id }} -e bin/init_atmosphere_model \
+              -i inputs -o out -n "$NTASKS" -s static
+          mkdir -p static/${{ matrix.static_key }}
+          cp out/*/case_files/mpas.*.nc out/*/case_files/log.static static/${{ matrix.static_key }}/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: static-${{ matrix.static_key }}
+          path: static/${{ matrix.static_key }}/
+          retention-days: 7
+          compression-level: 1
+
+  case:
+    needs: [setup, build, static]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.setup.outputs.matrix).cases }}
+    name: ${{ matrix.case_id }} (${{ matrix.case_dir }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+      - uses: actions/download-artifact@v4
+        with:
+          name: exe-${{ matrix.code_base }}
+          path: bin/
+      - uses: actions/download-artifact@v4
+        with:
+          name: static-${{ matrix.static_key }}
+          path: static/
+      - name: Fetch inputs
+        run: |
+          bundles=(grids aerosols "ungrib-${{ matrix.source }}.${{ matrix.date }}")
+          if [ "${{ matrix.source }}" = gfs ]; then bundles+=("ungrib-sst.${{ matrix.date }}"); fi
+          scripts/fetch_inputs.sh -r "$INPUTS_REPO" -t "$INPUTS_TAG" -d inputs "${bundles[@]}"
+      - name: Create init / lbc / sfc_update files
+        run: |
+          chmod +x bin/init_atmosphere_model
+          cp bin/build-info.txt describe-extra.txt
+          DESCRIBE_EXTRA=$PWD/describe-extra.txt \
+            scripts/create_case.sh -c ${{ matrix.case_id }} -e bin/init_atmosphere_model \
+              -i inputs -o out -n "$NTASKS" -S static
+          {
+            echo "### ${{ matrix.case_id }}: ${{ matrix.case_dir }}"
+            echo '```'
+            (cd out/${{ matrix.case_dir }}/case_files && ls -l)
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: case.${{ matrix.case_dir }}
+          path: out/${{ matrix.case_dir }}/
+          retention-days: 30
+          compression-level: 1
+
+  report:
+    needs: [setup, case]
+    if: ${{ !cancelled() && needs.case.result != 'skipped' && (inputs.baseline_tag != '' || inputs.publish_tag != '') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: case.*
+          path: results/
+      - name: Arrange results
+        run: |
+          cd results
+          for d in case.*; do mv "$d" "${d#case.}"; done
+          ls
+      - name: Compare with baseline ${{ inputs.baseline_tag }}
+        if: inputs.baseline_tag != ''
+        run: |
+          mkdir -p baseline
+          for d in results/*/; do
+            name=$(basename "$d")
+            gh release download "${{ inputs.baseline_tag }}" -R "${{ github.repository }}" \
+              -p "$name.tar" -D baseline || echo "no baseline asset for $name"
+          done
+          (cd baseline && for t in *.tar; do tar -xf "$t" && rm "$t"; done) || true
+          rc=0
+          scripts/compare_cases.sh baseline results report.md || rc=$?
+          { echo "### Comparison with ${{ inputs.baseline_tag }}"; echo; cat report.md; } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+      - name: Publish release ${{ inputs.publish_tag }}
+        if: ${{ !cancelled() && inputs.publish_tag != '' && needs.case.result == 'success' }}
+        env:
+          BUILDS: ${{ needs.setup.outputs.builds }}
+        run: |
+          mkdir -p assets
+          for d in results/*/; do
+            name=$(basename "$d")
+            tar -C results -cf "assets/$name.tar" "$name"
+          done
+          (cd assets && sha256sum -- *.tar > SHA256SUMS)
+          {
+            echo "MPAS cases created by ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            echo "| code base | repo | ref | commit |"
+            echo "|---|---|---|---|"
+            jq -r '.[] | "| \(.code_base) | \(.repo) | \(.ref) | \(.sha) |"' <<< "$BUILDS"
+            echo
+            echo "Inputs: $INPUTS_REPO@$INPUTS_TAG. Precision: $PRECISION. Toolchain: env/environment.yml at ${{ github.sha }}."
+            echo "Each <case_dir>.tar unpacks to <case_dir>/case_files/ (same names as mpas_testcase create_case)."
+          } > notes.md
+          gh release create "${{ inputs.publish_tag }}" -R "${{ github.repository }}" \
+            --title "Cases ${{ inputs.publish_tag }}" --notes-file notes.md assets/*

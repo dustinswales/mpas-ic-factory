@@ -1,0 +1,9 @@
+inputs/
+out/
+results/
+baseline/
+assets/
+static/
+bin/
+mpas-src/
+*.log
