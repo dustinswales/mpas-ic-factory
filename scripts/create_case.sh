@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 #
 # Create MPAS static / init / lbc / sfc_update files for one case in cases.yaml.
-# Portable version of barlage/mpas_testcase create_case/create_mpas_testcase_caseNN.sh:
+# Portable version of barlage/mpas_testcase create_case/create_mpas_testcase_caseNN.sh
+# (GSL code and namelists):
 # no Slurm, no site paths. Runs on a laptop, a GitHub runner or an HPC node.
 #
 # Usage:
 #   scripts/create_case.sh -c CASE -e INIT_ATMOSPHERE_EXE -i INPUT_DIR -o OUTPUT_DIR [options]
 #
 # Options:
-#   -c CASE        case id from cases.yaml (case01 ... case08)
+#   -c CASE        case id from cases.yaml (case05 ... case08)
 #   -e EXE         init_atmosphere_model executable
 #   -i INPUT_DIR   input tree (see scripts/fetch_inputs.sh):
 #                    grids/<mesh>.grid.nc, grids/<mesh>.graph.info
@@ -69,14 +70,14 @@ ntasks=${ntasks:-$(nproc)}
 MPIRUN=${MPIRUN:-"mpirun -n"}
 GPMETIS=${GPMETIS:-gpmetis}
 
-# Case settings: case_id code_base namelist domain resolution source season date mesh
-#                case_dir static_key use_climo_aerosols
-code_base="" namelist="" domain="" resolution="" source="" date="" mesh="" case_dir="" use_climo_aerosols=""
+# Case settings: case_id domain resolution source season date mesh case_dir
+#                static_key use_climo_aerosols
+domain="" resolution="" source="" date="" mesh="" case_dir="" use_climo_aerosols=""
 eval "$(python3 "$script_home/scripts/case_info.py" env "$case_id")"
 
 yyyy=${date:0:4} mm=${date:4:2} dd=${date:6:2} hh=${date:8:2}
 datestring="${yyyy}-${mm}-${dd}_${hh}.00.00"
-prefix="mpas.$code_base.$namelist.$domain.$resolution"
+prefix="mpas.$domain.$resolution"
 static_file="$prefix.static.nc"
 ugwp_file="$prefix.ugwp_oro_data.nc"
 init_file="$prefix.$source.init.$datestring.nc"
@@ -85,7 +86,6 @@ sst_file="$prefix.$source.sfc_update.$datestring.nc"
 
 has_lbc=false; [ "$domain" = "conus" ] && has_lbc=true
 has_sst=false; [ "$source" = "gfs" ] && has_sst=true
-has_ugwp=false; [ "$namelist" = "gsl" ] && has_ugwp=true
 
 if [ -z "$steps" ]; then
   steps="init"
@@ -130,8 +130,6 @@ cat <<EOF
 case:               $case_id ($case_dir)
 steps:              $steps
 executable:         $exe
-code_base:          $code_base
-namelist:           $namelist
 domain/resolution:  $domain/$resolution (mesh $mesh)
 input source:       $source  date $datestring
 input dir:          $input_dir
@@ -162,7 +160,7 @@ partition() {  # link graph.info.part.N into the current directory
 }
 
 stage_namelist() {  # $1 = step directory name, $2 = optional dated subdirectory
-  local src="$script_home/case_files/$namelist/$1${2:+/$2}"
+  local src="$script_home/case_files/$1${2:+/$2}"
   [ -d "$src" ] || die "no namelist directory $src"
   cp "$src"/namelist.init_atmosphere "$src"/streams.init_atmosphere .
 }
@@ -210,9 +208,9 @@ if want static; then
   ln -sf "$grid_file" grid.nc
   partition
   run_init_atmosphere static.nc
-  if $has_ugwp; then [ -s ugwp_oro_data.nc ] || die "ugwp_oro_data.nc was not created"; fi
+  [ -s ugwp_oro_data.nc ] || die "ugwp_oro_data.nc was not created"
   cp static.nc "$final/$static_file"
-  $has_ugwp && cp ugwp_oro_data.nc "$final/$ugwp_file"
+  cp ugwp_oro_data.nc "$final/$ugwp_file"
   save_log "$static_run" log.static
 fi
 
@@ -222,9 +220,8 @@ if want init; then
     static_src="$static_dir/$static_file"
     [ -s "$static_src" ] || die "no $static_file in $static_dir"
     cp "$static_src" "$final/$static_file"
-    if $has_ugwp && [ -s "$static_dir/$ugwp_file" ]; then
-      cp "$static_dir/$ugwp_file" "$final/$ugwp_file"
-    fi
+    [ -s "$static_dir/$ugwp_file" ] || die "no $ugwp_file in $static_dir"
+    cp "$static_dir/$ugwp_file" "$final/$ugwp_file"
     [ -e "$static_dir/log.static" ] && cp "$static_dir/log.static" "$final/log.static"
   fi
   [ -s "$final/$static_file" ] || die "no static file $final/$static_file"

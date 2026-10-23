@@ -2,49 +2,40 @@
 
 Creates MPAS static, initial-condition, lateral-boundary and surface-update files for a fixed set of test cases, on GitHub Actions or by hand on any Linux machine.
 
-It is a standalone, CI-driven version of the `create_case` step in [barlage/mpas_testcase](https://github.com/barlage/mpas_testcase). The case namelists in `case_files/` are copied unchanged from there. Output file names and the directory layout are also the same, so files from either source can be compared directly.
+It is a standalone, CI-driven version of the `create_case` step in [barlage/mpas_testcase](https://github.com/barlage/mpas_testcase), reduced to the GSL code and namelists (the old cases 05–08). The namelists in `case_files/` are copied unchanged from that repository's `case_files/gsl/`.
 
 ## Cases
 
-Defined in [`cases.yaml`](cases.yaml) (the old `create_mpas_testcase_case01..08.sh`):
+Defined in [`cases.yaml`](cases.yaml):
 
-| case | code base | namelist | domain | source | date |
-|---|---|---|---|---|---|
-| case01 | ncar | ncar | conus | gfs | 2023-03-10 15Z |
-| case02 | ncar | ncar | global | gfs | 2023-03-10 15Z |
-| case03 | gsl | ncar | conus | gfs | 2023-03-10 15Z |
-| case04 | gsl | ncar | global | gfs | 2023-03-10 15Z |
-| case05 | gsl | gsl | conus | gfs | 2023-03-10 15Z |
-| case06 | gsl | gsl | global | gfs | 2023-03-10 15Z |
-| case07 | gsl | gsl | conus | rap (winter) | 2024-02-02 18Z |
-| case08 | gsl | gsl | conus | rap (summer) | 2024-08-15 18Z |
+| case | domain | source | date |
+|---|---|---|---|
+| case05 | conus | gfs | 2023-03-10 15Z |
+| case06 | global | gfs | 2023-03-10 15Z |
+| case07 | conus | rap (winter) | 2024-02-02 18Z |
+| case08 | conus | rap (summer) | 2024-08-15 18Z |
 
-All cases use the 120 km mesh (`x1.40962` global, `conus.120km` regional) and climatological aerosols.
+All cases use the 120 km mesh (`x1.40962` global, `conus.120km` regional) and climatological aerosols. `init_atmosphere_model` is built from `ufs-community/MPAS-Model@noaa/develop` by default; change the default in `cases.yaml`, or override it per run.
 
-Each case writes `<code_base>.<namelist>.<domain>.120km.<source>.<yyyymmddhh>/case_files/` containing:
+Each case writes `<domain>.120km.<source>.<yyyymmddhh>/case_files/` containing:
 
-- `mpas.*.static.nc`
-- `mpas.*.ugwp_oro_data.nc` (gsl namelist only)
-- `mpas.*.init.<date>.nc`
-- `mpas.*.lbc.<date>.nc` (conus only; one file holding all 3-hourly records)
-- `mpas.*.sfc_update.<date>.nc` (gfs only)
+- `mpas.<domain>.120km.static.nc`
+- `mpas.<domain>.120km.ugwp_oro_data.nc`
+- `mpas.<domain>.120km.<source>.init.<date>.nc`
+- `mpas.<domain>.120km.<source>.lbc.<date>.nc` (conus only; one file holding all 3-hourly records)
+- `mpas.<domain>.120km.<source>.sfc_update.<date>.nc` (gfs only)
 - `log.*`
 - `description` (provenance: code repo, ref, commit, toolchain, input tag)
 - `SHA256SUMS`
 
-The **code base** decides which repository `init_atmosphere_model` is built from:
-
-- `ncar` defaults to `MPAS-Dev/MPAS-Model@v8.3.0`.
-- `gsl` defaults to `ufs-community/MPAS-Model@noaa/develop`.
-
-Change the defaults in `cases.yaml`, or override them per run.
+Compared with `mpas_testcase`, the `gsl.gsl.` part is dropped from the directory and file names (`gsl.gsl.conus.120km.gfs.2023031015/…/mpas.gsl.gsl.conus.120km.static.nc` becomes `conus.120km.gfs.2023031015/…/mpas.conus.120km.static.nc`).
 
 ## Running on GitHub Actions
 
 Actions → **Create MPAS cases** → *Run workflow*. The inputs are:
 
 - **cases**: `all` or a comma list, e.g. `case05,case07`.
-- **ncar_repo / ncar_ref, gsl_repo / gsl_ref**: any fork plus a branch, tag or SHA. Use these to test a PR branch.
+- **mpas_repo / mpas_ref**: any fork plus a branch, tag or SHA. Use these to test a PR branch.
 - **inputs_tag**: the release holding the input bundles (see below).
 - **baseline_tag**: a previously published release to compare against with `nccmp -dsSqf`. The result appears in the run summary.
 - **publish_tag**: publish this run's cases as a new release, one `<case_dir>.tar` per case.
@@ -52,9 +43,9 @@ Actions → **Create MPAS cases** → *Run workflow*. The inputs are:
 
 The run has five stages:
 
-1. **setup** reads `cases.yaml` and resolves each code base to a commit.
+1. **setup** reads `cases.yaml` and resolves the code ref to a commit.
 2. **build** compiles `init_atmosphere_model` with conda-forge GNU compilers, MPICH and parallel netCDF/PnetCDF (`env/environment.yml`). The executable is cached per commit.
-3. **static** makes one static file per (code base, namelist, domain). This is the slow step and the only one that needs the geographic data. Its result is cached on commit, static namelist, toolchain and input tag, so it reruns only when one of those changes.
+3. **static** makes one static file per domain (conus, global). This is the slow step and the only one that needs the geographic data. Its result is cached on commit, static namelist, toolchain and input tag, so it reruns only when one of those changes.
 4. **case** runs init, lbc and sst for each case in parallel and uploads the `case_files` directory as an artifact.
 5. **report** compares with the baseline and/or publishes the release (optional).
 
@@ -102,11 +93,11 @@ Compare two trees with `scripts/compare_cases.sh BASE_DIR TEST_DIR`.
 ## Layout
 
 ```
-cases.yaml                case definitions, dates, meshes, default code refs
-case_files/{ncar,gsl}/    namelist.init_atmosphere + streams per step (from mpas_testcase)
+cases.yaml                case definitions, dates, meshes, default code ref
+case_files/               namelist.init_atmosphere + streams per step (from mpas_testcase gsl)
 scripts/create_case.sh    one case, any machine
 scripts/case_info.py      cases.yaml -> shell settings / Actions matrices
-scripts/resolve_refs.py   code base -> repo, ref, commit
+scripts/resolve_refs.py   code ref -> commit
 scripts/build_init_atmosphere.sh
 scripts/fetch_inputs.sh   release bundles -> input tree
 scripts/compare_cases.sh  nccmp report

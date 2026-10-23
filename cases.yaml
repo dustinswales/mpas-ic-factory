@@ -1,13 +1,17 @@
-# MPAS IC factory case definitions.
+# MPAS IC factory case definitions (GSL init_atmosphere code and namelists).
 #
 # Each case produces, under <outdir>/<case_dir>/case_files/:
-#   mpas.<code_base>.<namelist>.<domain>.<resolution>.static.nc
-#   mpas.<code_base>.<namelist>.<domain>.<resolution>.ugwp_oro_data.nc          (gsl namelist only)
-#   mpas.<code_base>.<namelist>.<domain>.<resolution>.<source>.init.<date>.nc
-#   mpas.<code_base>.<namelist>.<domain>.<resolution>.<source>.lbc.<date>.nc       (conus only)
-#   mpas.<code_base>.<namelist>.<domain>.<resolution>.<source>.sfc_update.<date>.nc (gfs only)
-# with <case_dir> = <code_base>.<namelist>.<domain>.<resolution>.<source>.<yyyymmddhh>
-# (same names as barlage/mpas_testcase create_case).
+#   mpas.<domain>.<resolution>.static.nc
+#   mpas.<domain>.<resolution>.ugwp_oro_data.nc
+#   mpas.<domain>.<resolution>.<source>.init.<date>.nc
+#   mpas.<domain>.<resolution>.<source>.lbc.<date>.nc        (conus only)
+#   mpas.<domain>.<resolution>.<source>.sfc_update.<date>.nc (gfs only)
+# with <case_dir> = <domain>.<resolution>.<source>.<yyyymmddhh>
+
+# Repository that builds init_atmosphere_model (workflow inputs can override).
+code:
+  repo: ufs-community/MPAS-Model
+  ref: noaa/develop
 
 # Initial times of the input data. "season" picks the rap date.
 dates:
@@ -24,26 +28,12 @@ meshes:
   conus:
     120km: conus.120km
 
-# Code bases: which git repository builds init_atmosphere_model.
-# Defaults; the workflow inputs can override repo and ref.
-code_bases:
-  ncar:
-    repo: MPAS-Dev/MPAS-Model
-    ref: v8.3.0
-  gsl:
-    repo: ufs-community/MPAS-Model
-    ref: noaa/develop
-
-# Supported combinations (create_mpas_testcase_case01..08.sh).
+# Case ids follow barlage/mpas_testcase create_mpas_testcase_case05..08.sh.
 cases:
-  case01: {code_base: ncar, namelist: ncar, domain: conus,  resolution: 120km, source: gfs}
-  case02: {code_base: ncar, namelist: ncar, domain: global, resolution: 120km, source: gfs}
-  case03: {code_base: gsl,  namelist: ncar, domain: conus,  resolution: 120km, source: gfs}
-  case04: {code_base: gsl,  namelist: ncar, domain: global, resolution: 120km, source: gfs}
-  case05: {code_base: gsl,  namelist: gsl,  domain: conus,  resolution: 120km, source: gfs}
-  case06: {code_base: gsl,  namelist: gsl,  domain: global, resolution: 120km, source: gfs}
-  case07: {code_base: gsl,  namelist: gsl,  domain: conus,  resolution: 120km, source: rap, season: winter}
-  case08: {code_base: gsl,  namelist: gsl,  domain: conus,  resolution: 120km, source: rap, season: summer}
+  case05: {domain: conus,  resolution: 120km, source: gfs}
+  case06: {domain: global, resolution: 120km, source: gfs}
+  case07: {domain: conus,  resolution: 120km, source: rap, season: winter}
+  case08: {domain: conus,  resolution: 120km, source: rap, season: summer}
 
 # Defaults applied to every case unless the case sets them.
 defaults:

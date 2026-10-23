@@ -44,7 +44,7 @@ CONUS_GRID_DIR=${CONUS_GRID_DIR:-$SYSTEM_DIR/code-MPAS/MPAS-Limited-Area}
 UNGRIB_DIR=${UNGRIB_DIR:-$SYSTEM_DIR/data/ungrib}
 AEROSOL_FILE=${AEROSOL_FILE:-$SYSTEM_DIR/data/aerosols/QNWFA_QNIFA_SIGMA_MONTHLY.dat}
 GEOG_DIR=${GEOG_DIR:-$SYSTEM_DIR/data/mpas_static}
-# Datasets read by the ncar and gsl step1_static namelists (MPAS v8.3 / GSL v8.4):
+# Datasets read by the step1_static namelist (GSL MPAS v8.4):
 GEOG_SUBDIRS=${GEOG_SUBDIRS:-"topo_gmted2010_30s modis_landuse_20class_30s landuse_30s
   soiltype_top_30s soiltemp_1deg greenfrac_fpar_modis albedo_modis maxsnowalb_modis
   lai_modis_30s soilgrids topo_ugwp_2.5m topo_ugwp_30s"}

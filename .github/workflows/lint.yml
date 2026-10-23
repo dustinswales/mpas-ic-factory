@@ -27,8 +27,8 @@ jobs:
             for s in step2_init step3_lbc step4_sst; do
               [ "$s" = step3_lbc ] && [ "$domain" != conus ] && continue
               [ "$s" = step4_sst ] && [ "$source" != gfs ] && continue
-              test -f "case_files/$namelist/$s/$source.$date/namelist.init_atmosphere" \
-                || { echo "missing case_files/$namelist/$s/$source.$date for $c"; exit 1; }
+              test -f "case_files/$s/$source.$date/namelist.init_atmosphere" \
+                || { echo "missing case_files/$s/$source.$date for $c"; exit 1; }
             done
           done
       - name: shellcheck
