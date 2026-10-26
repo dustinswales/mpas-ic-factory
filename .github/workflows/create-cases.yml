@@ -21,7 +21,7 @@ on:
         type: string
       inputs_tag:
         description: Release tag holding the input bundles
-        default: inputs-v1
+        default: v1.0.0
         type: string
       baseline_tag:
         description: Release tag of baseline cases to compare with (blank = no comparison)
