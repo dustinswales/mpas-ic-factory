@@ -73,6 +73,7 @@ GPMETIS=${GPMETIS:-gpmetis}
 # Case settings: case_id domain resolution source season date mesh case_dir
 #                static_key use_climo_aerosols
 domain="" resolution="" source="" date="" mesh="" case_dir="" use_climo_aerosols=""
+static_variant="" static_nml_dir="step1_static"
 eval "$(python3 "$script_home/scripts/case_info.py" env "$case_id")"
 
 yyyy=${date:0:4} mm=${date:4:2} dd=${date:6:2} hh=${date:8:2}
@@ -136,6 +137,7 @@ case:               $case_id ($case_dir)
 steps:              $steps
 executable:         $exe
 domain/resolution:  $domain/$resolution (mesh $mesh)
+static namelist:    case_files/$static_nml_dir${static_variant:+  (variant $static_variant)}
 input source:       $source  date $datestring
 input dir:          $input_dir
 work dir:           $work
@@ -219,7 +221,7 @@ if want static; then
   [ -s "$grid_file" ] || die "missing $grid_file"
   [ -d "$geog_dir" ]  || die "missing $geog_dir"
   rm -rf "$static_run"; mkdir -p "$static_run"; cd "$static_run"
-  stage_namelist step1_static
+  stage_namelist "$static_nml_dir"
   ln -sf "$geog_dir" mpas_static
   ln -sf "$grid_file" grid.nc
   partition

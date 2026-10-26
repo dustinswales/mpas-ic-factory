@@ -33,13 +33,16 @@ jobs=${MAKE_JOBS:-$(nproc)}
 patch_dir=${MPAS_PATCH_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/patches/mpas}
 
 cd "$src"
+applied=""
 shopt -s nullglob
 for p in "$patch_dir"/*.patch; do
   if git apply --check "$p" 2>/dev/null; then
     git apply "$p"
     echo "Applied $(basename "$p")"
+    applied+="applied  $(sha256sum "$p" | cut -c1-12)  $(basename "$p")"$'\n'
   elif git apply --reverse --check "$p" 2>/dev/null; then
     echo "Already in source, skipped: $(basename "$p")"
+    applied+="upstream $(sha256sum "$p" | cut -c1-12)  $(basename "$p")"$'\n'
   else
     echo "ERROR: $(basename "$p") does not apply to this MPAS source"; git apply --check "$p"; exit 1
   fi
@@ -64,5 +67,7 @@ make -j"$jobs" "${make_args[@]}" 2>&1 | tee build.log | grep -E "^(\*|ERROR|Erro
 if [ -n "$out" ]; then
   mkdir -p "$(dirname "$out")"
   cp init_atmosphere_model "$out"
+  # Record the local MPAS patches in the build (kept next to the executable).
+  printf '%s' "$applied" > "$(dirname "$out")/mpas-patches.txt"
 fi
 echo "Built: $src/init_atmosphere_model"

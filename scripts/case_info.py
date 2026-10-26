@@ -56,7 +56,12 @@ def resolve(cfg, case_id):
     except KeyError:
         sys.exit(f"ERROR: {case_id}: no mesh for {c['domain']}/{c['resolution']}")
 
-    c["static_key"] = f"{c['domain']}-{c['resolution']}"
+    variant = str(c.get("static_variant") or "")
+    if variant and not (ROOT / "case_files" / f"step1_static_{variant}").is_dir():
+        sys.exit(f"ERROR: {case_id}: no case_files/step1_static_{variant}/ for static_variant '{variant}'")
+    c["static_variant"] = variant
+    c["static_nml_dir"] = f"step1_static_{variant}" if variant else "step1_static"
+    c["static_key"] = f"{c['domain']}-{c['resolution']}" + (f"-{variant}" if variant else "")
     c["case_dir"] = ".".join([c["domain"], c["resolution"], c["source"], date])
     c["use_climo_aerosols"] = str(bool(c.get("use_climo_aerosols", True))).lower()
     c.setdefault("season", "")
@@ -90,7 +95,8 @@ def main():
     elif a.cmd == "env":
         c = resolve(cfg, a.case)
         for k in ("case_id", "domain", "resolution", "source", "season", "date",
-                  "mesh", "case_dir", "static_key", "use_climo_aerosols"):
+                  "mesh", "case_dir", "static_key", "static_variant", "static_nml_dir",
+                  "use_climo_aerosols"):
             print(f"{k}={shlex.quote(str(c[k]))}")
     elif a.cmd == "matrix":
         cases = [resolve(cfg, i) for i in select(cfg, a.cases)]
@@ -98,6 +104,7 @@ def main():
         for c in cases:
             statics.setdefault(c["static_key"], {
                 "static_key": c["static_key"],
+                "static_nml_dir": c["static_nml_dir"],
                 "case_id": c["case_id"],  # any case using this static file
             })
         out = {

@@ -8,6 +8,8 @@
 # BUNDLE names (assets are BUNDLE.tar.gz, or BUNDLE.tar.gz.part-aa, -ab, ... when split):
 #   grids                 -> INPUT_DIR/grids/
 #   geog                  -> INPUT_DIR/geog/mpas_static/
+#                            (also fetches every geog-<dataset> bundle in the release,
+#                             see tools/add_geog_dataset.sh)
 #   aerosols              -> INPUT_DIR/aerosols/
 #   ungrib-<src>.<date>   -> INPUT_DIR/ungrib/<src>.<date>/   (e.g. ungrib-gfs.2023031015)
 #
@@ -54,7 +56,17 @@ fetch() {  # fetch asset names into $dl
 
 [ -s "$dl/MANIFEST.sha256" ] || fetch MANIFEST.sha256
 
-for bundle in "$@"; do
+# "geog" also brings in extra datasets added later as geog-<dataset> bundles.
+bundles=("$@")
+for b in "$@"; do
+  if [ "$b" = geog ]; then
+    mapfile -t extra < <(awk '{print $2}' "$dl/MANIFEST.sha256" \
+                         | sed -nE 's/^(geog-[^ ]+)\.tar\.gz(\.part-[a-z]+)?$/\1/p' | sort -u)
+    bundles+=("${extra[@]}")
+  fi
+done
+
+for bundle in "${bundles[@]}"; do
   marker="$input_dir/.done.$bundle"
   if [ -e "$marker" ]; then echo "$bundle: already unpacked"; continue; fi
 

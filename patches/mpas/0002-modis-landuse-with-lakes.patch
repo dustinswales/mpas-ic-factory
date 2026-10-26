@@ -1,0 +1,261 @@
+From 899478dddb321589c2ae4de0105c65e063047a07 Mon Sep 17 00:00:00 2001
+From: Dustin Swales <djs467@gmail.com>
+Date: Mon, 26 Oct 2026 15:48:36 -0600
+Subject: [PATCH] init_atmosphere: add 21-class MODIS land use with lakes
+
+New config_landuse_data option 'MODIFIED_IGBP_MODIS_NOAH_LAKES' reads the
+WPS dataset modis_landuse_20class_30s_with_lakes/ (category 21 = lakes):
+
+- Registry: nlcat = 21 for the new option; new mesh field islake_lu
+  (default -1) in the input and output streams.
+- MMINLU stays 'MODIFIED_IGBP_MODIS_NOAH', so the RUC LSM selects the
+  21-row MODI-RUC table in VEGPARM.TBL.
+- interp_landuse returns islake from the dataset index file, and stops if
+  the dataset's category count does not match nlcat.
+- Lake points keep lu_index = islake_lu (they are no longer converted to
+  iswater_lu by the soil/land use consistency check) and get water soil.
+- derive_landmask treats lake points as water (landmask = 0).
+- The static step stops if the new option is used with a dataset that has
+  no lake category.
+
+Static files without islake_lu still work: MPAS warns that the variable is
+not in the input file and keeps the default (-1).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Kadc7j2btyf9EtMtcXzsmY
+---
+ src/core_init_atmosphere/Registry.xml         |  9 ++-
+ .../mpas_init_atm_static.F                    | 60 +++++++++++++++----
+ 2 files changed, 57 insertions(+), 12 deletions(-)
+
+diff --git a/src/core_init_atmosphere/Registry.xml b/src/core_init_atmosphere/Registry.xml
+index 5323f44..aa35ffe 100644
+--- a/src/core_init_atmosphere/Registry.xml
++++ b/src/core_init_atmosphere/Registry.xml
+@@ -44,7 +44,7 @@
+                      description="The number of prescribed pressure levels in the climatological GOCART data set"/>
+                 <dim name="nMonths" definition="namelist:config_months"
+                      description="The number of months in a year"/>
+-                <dim name="nlcat" definition="namelist:config_landuse_data" calculation='20 + 4 * merge(1,0,config_landuse_data(1:4)=="USGS")'
++                <dim name="nlcat" definition="namelist:config_landuse_data" calculation='20 + 4 * merge(1,0,config_landuse_data(1:4)=="USGS") + merge(1,0,trim(config_landuse_data)=="MODIFIED_IGBP_MODIS_NOAH_LAKES")'
+                      description="The number of landuse categories used in the land surface model"/>
+                 <dim name="nscat" definition="16" definition:"namelist:config_nsoilcat"
+                      description="The number of soil categories used in the land surface model"/>
+@@ -183,7 +183,7 @@
+                 <nml_option name="config_landuse_data"          type="character"     default_value="MODIFIED_IGBP_MODIS_NOAH"
+                      units="-"
+                      description="The land use classification to use (case 7 only)"
+-                     possible_values="`USGS', `MODIFIED_IGBP_MODIS_NOAH', or `MODIFIED_IGBP_MODIS_NOAH_15s'"/>
++                     possible_values="`USGS', `MODIFIED_IGBP_MODIS_NOAH', `MODIFIED_IGBP_MODIS_NOAH_15s', or `MODIFIED_IGBP_MODIS_NOAH_LAKES' (21-class MODIS with lakes as category 21)"/>
+ 
+                 <nml_option name="config_soilcat_data"          type="character"     default_value="STATSGO"
+                      units="-"
+@@ -501,6 +501,7 @@
+                         <var name="mminlu" packages="gwd_stage_in;vertical_stage_in;met_stage_in"/>
+                         <var name="isice_lu" packages="gwd_stage_in;vertical_stage_in;met_stage_in"/>
+                         <var name="iswater_lu" packages="gwd_stage_in;vertical_stage_in;met_stage_in"/>
++                        <var name="islake_lu" packages="gwd_stage_in;vertical_stage_in;met_stage_in"/>
+                         <var name="ivgtyp" packages="gwd_stage_in;vertical_stage_in;met_stage_in"/>
+                         <var name="isltyp" packages="gwd_stage_in;vertical_stage_in;met_stage_in"/>
+                         <var name="landusef" packages="gwd_stage_in;vertical_stage_in;met_stage_in"/>
+@@ -607,6 +608,7 @@
+                         <var name="mminlu"/>
+                         <var name="isice_lu"/>
+                         <var name="iswater_lu"/>
++                        <var name="islake_lu"/>
+                         <var name="ivgtyp"/>
+                         <var name="landusef"/>
+                         <var name="soilf"/>
+@@ -947,6 +949,9 @@
+                 <var name="iswater_lu" type="integer" dimensions="" units="unitless" default_value="16"
+                      description="Index category for water"/>
+ 
++                <var name="islake_lu" type="integer" dimensions="" units="unitless" default_value="-1"
++                     description="Index category for lakes (-1 if the land use dataset has no lake category)"/>
++
+                 <!-- SOIL COMPOSITION fields needed for the NOAH-MP land surface scheme -->
+                 <var name="soilcomp" type="real" dimensions="nSoilComps nCells" units="percent"
+                      description="soil composition needed as input in the NOAH-MP land surface model"
+diff --git a/src/core_init_atmosphere/mpas_init_atm_static.F b/src/core_init_atmosphere/mpas_init_atm_static.F
+index 72f2eed..7074d4a 100644
+--- a/src/core_init_atmosphere/mpas_init_atm_static.F
++++ b/src/core_init_atmosphere/mpas_init_atm_static.F
+@@ -158,7 +158,7 @@
+  real(kind=RKIND),dimension(:,:),allocatable  :: maxsnowalb
+  real(kind=RKIND),dimension(:,:,:),allocatable:: vegfra
+ 
+- integer, pointer :: isice_lu, iswater_lu
++ integer, pointer :: isice_lu, iswater_lu, islake_lu
+  integer :: iswater_soil
+  integer, pointer :: nCells, nCellsSolve, nEdges, nVertices, maxEdges
+  logical, pointer :: on_a_sphere
+@@ -279,6 +279,7 @@
+  call mpas_pool_get_array(mesh, 'mminlu', mminlu)
+  call mpas_pool_get_array(mesh, 'isice_lu', isice_lu)
+  call mpas_pool_get_array(mesh, 'iswater_lu', iswater_lu)
++ call mpas_pool_get_array(mesh, 'islake_lu', islake_lu)
+  call mpas_pool_get_array(mesh, 'soilcat_top', soilcat_top)
+  call mpas_pool_get_array(mesh, 'soilf', soilf)
+  call mpas_pool_get_array(mesh, 'landmask', landmask)
+@@ -368,14 +369,17 @@
+  surface_input_select0: select case(trim(config_landuse_data))
+     case('USGS')
+        write(mminlu,'(a)') 'USGS'
+-    case('MODIFIED_IGBP_MODIS_NOAH', 'MODIFIED_IGBP_MODIS_NOAH_15s')
++    case('MODIFIED_IGBP_MODIS_NOAH', 'MODIFIED_IGBP_MODIS_NOAH_15s', 'MODIFIED_IGBP_MODIS_NOAH_LAKES')
++       ! The lakes variant is the same classification with lakes split out as an extra
++       ! category, so it keeps the MMINLU name (the RUC LSM then selects MODI-RUC).
+        write(mminlu,'(a)') 'MODIFIED_IGBP_MODIS_NOAH'
+     case default
+          call mpas_log_write('*****************************************************************', messageType=MPAS_LOG_ERR)
+          call mpas_log_write('Invalid land use dataset '''//trim(config_landuse_data) &
+                                        //''' selected for config_landuse_data',                   messageType=MPAS_LOG_ERR)
+          call mpas_log_write('   Possible options are: ''USGS'', ''MODIFIED_IGBP_MODIS_NOAH''',   messageType=MPAS_LOG_ERR)
+-         call mpas_log_write('                         ''MODIFIED_IGBP_MODIS_NOAH_15s''',         messageType=MPAS_LOG_ERR)
++         call mpas_log_write('                         ''MODIFIED_IGBP_MODIS_NOAH_15s'', ''MODIFIED_IGBP_MODIS_NOAH_LAKES''', &
++                             messageType=MPAS_LOG_ERR)
+          call mpas_log_write('*****************************************************************', messageType=MPAS_LOG_ERR)
+          call mpas_log_write('Please correct the namelist.', messageType=MPAS_LOG_CRIT)
+  end select surface_input_select0
+@@ -417,20 +421,31 @@
+     case('MODIFIED_IGBP_MODIS_NOAH_15s')
+        call mpas_log_write('Using 20-class MODIS 15-arc-second land cover dataset')
+        geog_sub_path = 'modis_landuse_20class_15s/'
++    case('MODIFIED_IGBP_MODIS_NOAH_LAKES')
++       call mpas_log_write('Using 21-class MODIS 30-arc-second land cover dataset with lakes')
++       geog_sub_path = 'modis_landuse_20class_30s_with_lakes/'
+     case default
+        call mpas_log_write('*****************************************************************', messageType=MPAS_LOG_ERR)
+        call mpas_log_write('Invalid land use dataset '''//trim(config_landuse_data) &
+                                      //''' selected for config_landuse_data',                   messageType=MPAS_LOG_ERR)
+        call mpas_log_write('   Possible options are: ''USGS'', ''MODIFIED_IGBP_MODIS_NOAH''',   messageType=MPAS_LOG_ERR)
+-       call mpas_log_write('                         ''MODIFIED_IGBP_MODIS_NOAH_15s''',         messageType=MPAS_LOG_ERR)
++       call mpas_log_write('                         ''MODIFIED_IGBP_MODIS_NOAH_15s'', ''MODIFIED_IGBP_MODIS_NOAH_LAKES''', &
++                           messageType=MPAS_LOG_ERR)
+        call mpas_log_write('*****************************************************************', messageType=MPAS_LOG_ERR)
+        call mpas_log_write('Please correct the namelist.', messageType=MPAS_LOG_CRIT)
+  end select surface_input_select1
+ 
+  call mpas_log_write('--- start interpolate LU_INDEX')
+  call interp_landuse(mesh, tree, trim(geog_data_path)//trim(geog_sub_path), isice_lu, iswater_lu, &
+-                     supersample_fac=supersample_fac_lu)
++                     supersample_fac=supersample_fac_lu, islake_lu=islake_lu)
+  call mpas_log_write('--- end interpolate LU_INDEX')
++ call mpas_log_write('--- isice_lu = $i, iswater_lu = $i, islake_lu = $i', intArgs=(/isice_lu, iswater_lu, islake_lu/))
++ if (trim(config_landuse_data) == 'MODIFIED_IGBP_MODIS_NOAH_LAKES' .and. islake_lu <= 0) then
++    call mpas_log_write('config_landuse_data = ''MODIFIED_IGBP_MODIS_NOAH_LAKES'' needs a land use dataset whose', &
++                        messageType=MPAS_LOG_ERR)
++    call mpas_log_write('index file defines islake, but '//trim(geog_data_path)//trim(geog_sub_path)//' does not.', &
++                        messageType=MPAS_LOG_CRIT)
++ end if
+ 
+ !
+ ! Interpolate SOILCAT_TOP
+@@ -465,6 +480,11 @@
+ ! CORRECT INCONSISTENT SOIL AND LAND USE DATA
+ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  do iCell = 1,nCells
++    ! Lake points stay lakes (they are not turned into iswater_lu) but get water soil.
++    if (islake_lu > 0 .and. lu_index(iCell) == islake_lu) then
++        soilcat_top(iCell) = iswater_soil
++        cycle
++    end if
+     if (lu_index(iCell) == iswater_lu .or. &
+         soilcat_top(iCell) == iswater_soil) then
+         if (lu_index(iCell) /= iswater_lu) then
+@@ -483,7 +503,7 @@
+ ! Derive LANDMASK
+ !
+  call mpas_log_write('--- start interpolate LANDMASK')
+- call derive_landmask(mesh, dims, iswater_lu)
++ call derive_landmask(mesh, dims, iswater_lu, islake_lu)
+  call mpas_log_write('--- end interpolate LANDMASK')
+ 
+ 
+@@ -1955,7 +1975,7 @@ else
+  !> that isice and iswater are in the dataset's index file.
+  !
+  !-----------------------------------------------------------------------
+- subroutine interp_landuse(mesh, kdtree, geog_data_path, isice_lu, iswater_lu, supersample_fac)
++ subroutine interp_landuse(mesh, kdtree, geog_data_path, isice_lu, iswater_lu, supersample_fac, islake_lu)
+ 
+      implicit none  
+ 
+@@ -1966,12 +1986,14 @@ else
+      integer, intent(out) :: isice_lu
+      integer, intent(out) :: iswater_lu
+      integer, intent(in), optional :: supersample_fac
++     integer, intent(out), optional :: islake_lu
+ 
+      ! Local variables
+      type (mpas_geotile_mgr_type) :: mgr
+      integer, pointer :: nCells
+      integer, pointer :: isice_lu_ptr
+      integer, pointer :: iswater_lu_ptr
++     integer, pointer :: islake_lu_ptr
+ 
+      real (kind=RKIND), pointer :: scalefactor
+      real (kind=RKIND), pointer :: landusef(:,:)
+@@ -1997,6 +2019,18 @@ else
+ 
+      isice_lu = isice_lu_ptr
+      iswater_lu = iswater_lu_ptr
++     if (present(islake_lu)) then
++         ! The geotile manager sets islake = -1 when the index file has no islake entry.
++         call mpas_pool_get_config(mgr % pool, 'islake', islake_lu_ptr)
++         islake_lu = islake_lu_ptr
++     end if
++
++     ! landusef is dimensioned by nlcat (from config_landuse_data); it must match the dataset.
++     if (size(landusef, dim=1) /= category_max - category_min + 1) then
++         call mpas_log_write('Land use dataset '//trim(geog_data_path)//' has $i categories but nlcat = $i.', &
++                             intArgs=(/category_max - category_min + 1, size(landusef, dim=1)/), messageType=MPAS_LOG_ERR)
++         call mpas_log_write('Check that config_landuse_data matches the dataset.', messageType=MPAS_LOG_CRIT)
++     end if
+ 
+      allocate(ncat(category_min:category_max, nCells))
+      ncat(:,:) = 0
+@@ -2126,11 +2160,12 @@ else
+  !> \details
+  !> Derive the landmask field from lu_index. mesh should be an mpas_pool
+  !> that contains landmask, and lu_index. iswater_lu should be the value that
+- !> the landuse dataset uses to signify water. Before calling this function,
++ !> the landuse dataset uses to signify water; lake points (islake_lu, if present
++ !> and positive) are also water. Before calling this function,
+  !> the landuse dataset will need to be successfully interpolated to lu_index.
+  !
+  !-----------------------------------------------------------------------
+- subroutine derive_landmask(mesh, dims, iswater_lu)
++ subroutine derive_landmask(mesh, dims, iswater_lu, islake_lu)
+ 
+     implicit none
+ 
+@@ -2138,9 +2173,11 @@ else
+     type (mpas_pool_type), intent(inout) :: mesh
+     type (mpas_pool_type), intent(in) :: dims
+     integer, intent(in) :: iswater_lu
++    integer, intent(in), optional :: islake_lu
+ 
+     ! Local variables
+     integer :: iCell
++    integer :: lake
+     integer, pointer :: nCells
+     integer, dimension(:), pointer :: lu_index
+ 
+@@ -2151,9 +2188,12 @@ else
+     !
+     ! Derive LANDMASK
+     !
++    lake = -1
++    if (present(islake_lu)) lake = islake_lu
++
+     landmask(:) = 0
+     do iCell=1, nCells
+-       if (lu_index(iCell) /= iswater_lu) landmask(iCell) = 1
++       if (lu_index(iCell) /= iswater_lu .and. lu_index(iCell) /= lake) landmask(iCell) = 1
+     end do
+ 
+  end subroutine derive_landmask
+-- 
+2.43.0
+
