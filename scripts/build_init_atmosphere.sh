@@ -12,6 +12,9 @@
 #   FPE_TRAP          with DEBUG=true: "true" keeps MPAS's -ffpe-trap=invalid,zero,overflow,
 #                     "false" (default) drops it so bounds errors past a benign FPE are reached
 #   MAKE_JOBS         parallel make jobs (default: nproc)
+#   MPAS_PATCH_DIR    directory of *.patch files applied to SRC_DIR before building
+#                     (default: patches/mpas next to this script's repo); patches that
+#                     are already in the source are skipped
 set -euo pipefail
 
 src=${1:?usage: $0 SRC_DIR [OUT_EXE]}
@@ -27,7 +30,22 @@ export PNETCDF=${PNETCDF:-$prefix}
 precision=${PRECISION:-single}
 jobs=${MAKE_JOBS:-$(nproc)}
 
+patch_dir=${MPAS_PATCH_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/patches/mpas}
+
 cd "$src"
+shopt -s nullglob
+for p in "$patch_dir"/*.patch; do
+  if git apply --check "$p" 2>/dev/null; then
+    git apply "$p"
+    echo "Applied $(basename "$p")"
+  elif git apply --reverse --check "$p" 2>/dev/null; then
+    echo "Already in source, skipped: $(basename "$p")"
+  else
+    echo "ERROR: $(basename "$p") does not apply to this MPAS source"; git apply --check "$p"; exit 1
+  fi
+done
+shopt -u nullglob
+
 make_args=(gfortran CORE=init_atmosphere PRECISION="$precision" AUTOCLEAN=true)
 if [ "${DEBUG:-false}" = "true" ]; then
   make_args+=(DEBUG=true)
