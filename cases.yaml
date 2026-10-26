@@ -32,8 +32,8 @@ meshes:
 cases:
   conus_gfs:  {domain: conus,  resolution: 120km, source: gfs}
   global_gfs: {domain: global, resolution: 120km, source: gfs}
-  conus_rapw: {domain: conus,  resolution: 120km, source: rap, season: winter}
-  conus_raps: {domain: conus,  resolution: 120km, source: rap, season: summer}
+  conus_rapw: {domain: conus,  resolution: 120km, source: rap, season: winter, static_variant: lakes}
+  conus_raps: {domain: conus,  resolution: 120km, source: rap, season: summer, static_variant: lakes}
 
 # Defaults applied to every case unless the case sets them.
 defaults:
