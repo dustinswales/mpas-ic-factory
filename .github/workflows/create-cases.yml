@@ -23,6 +23,14 @@ on:
         description: Release tag holding the input bundles
         default: v1.0.0
         type: string
+      static_tag:
+        description: Release tag with prebuilt static files (tools/stage_static.sh); blank = compute in CI
+        default: ''
+        type: string
+      static_runner:
+        description: Runner label for the static job (e.g. a larger runner if your plan has one)
+        default: ubuntu-24.04
+        type: string
       baseline_tag:
         description: Release tag of baseline cases to compare with (blank = no comparison)
         default: ''
@@ -112,7 +120,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: bin/init_atmosphere_model
-          key: exe-v1-${{ fromJSON(needs.setup.outputs.code).sha }}-${{ inputs.precision }}-${{ inputs.debug }}-${{ hashFiles('env/environment.yml', 'scripts/build_init_atmosphere.sh') }}
+          key: exe-v1-${{ fromJSON(needs.setup.outputs.code).sha }}-${{ inputs.precision }}-${{ inputs.debug }}-${{ hashFiles('env/environment.yml', 'scripts/build_init_atmosphere.sh', 'patches/mpas/*.patch') }}
       - name: Check out MPAS code
         if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/checkout@v4
@@ -149,8 +157,10 @@ jobs:
 
   static:
     needs: [setup, build]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 340
+    runs-on: ${{ inputs.static_runner }}
+    # GitHub-hosted jobs are capped at 6 h. The global static step can need longer
+    # on a 4-core runner: then use static_tag or a larger static_runner.
+    timeout-minutes: 355
     strategy:
       fail-fast: false
       matrix:
@@ -158,30 +168,51 @@ jobs:
     name: static (${{ matrix.static_key }})
     steps:
       - uses: actions/checkout@v4
+      - name: Use prebuilt static files from ${{ inputs.static_tag }}
+        id: prebuilt
+        if: inputs.static_tag != ''
+        run: |
+          # Fall back to computing the file when the release has no bundle for this
+          # static key (e.g. a variant such as the lakes one that only CI makes).
+          mkdir -p prebuilt/.download
+          gh release download "${{ inputs.static_tag }}" -R "${{ github.repository }}" \
+            -p MANIFEST.sha256 -D prebuilt/.download --clobber
+          if grep -qE " static-${{ matrix.static_key }}\.tar\.gz" prebuilt/.download/MANIFEST.sha256; then
+            scripts/fetch_inputs.sh -r "${{ github.repository }}" -t "${{ inputs.static_tag }}" \
+              -d prebuilt "static-${{ matrix.static_key }}"
+            mkdir -p static
+            cp -r "prebuilt/static/${{ matrix.static_key }}" static/
+            ls -l "static/${{ matrix.static_key }}"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No static-${{ matrix.static_key }} in ${{ inputs.static_tag }}; computing it instead."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Restore static files
+        if: steps.prebuilt.outputs.found != 'true'
         id: cache
         uses: actions/cache@v4
         with:
           path: static/
-          key: static-v2-${{ matrix.static_key }}-${{ fromJSON(needs.setup.outputs.code).sha }}-${{ inputs.precision }}-${{ inputs.inputs_tag }}-${{ hashFiles('case_files/step1_static/*', 'env/environment.yml') }}
+          key: static-v2-${{ matrix.static_key }}-${{ fromJSON(needs.setup.outputs.code).sha }}-${{ inputs.precision }}-${{ inputs.inputs_tag }}-${{ hashFiles('case_files/step1_static*/*', 'env/environment.yml', 'patches/mpas/*.patch') }}
       - name: Free disk space for geographic data
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.prebuilt.outputs.found != 'true' && steps.cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
           df -h /
       - uses: ./.github/actions/setup-env
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.prebuilt.outputs.found != 'true' && steps.cache.outputs.cache-hit != 'true'
       - uses: actions/download-artifact@v4
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.prebuilt.outputs.found != 'true' && steps.cache.outputs.cache-hit != 'true'
         with:
           name: exe
           path: bin/
       - name: Fetch grids and geographic data
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.prebuilt.outputs.found != 'true' && steps.cache.outputs.cache-hit != 'true'
         run: scripts/fetch_inputs.sh -r "$INPUTS_REPO" -t "$INPUTS_TAG" -d inputs grids geog
       - name: Create static file
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.prebuilt.outputs.found != 'true' && steps.cache.outputs.cache-hit != 'true'
         run: |
           chmod +x bin/init_atmosphere_model
           cp bin/build-info.txt describe-extra.txt

@@ -8,7 +8,7 @@
 # Usage:
 #   bash tools/add_geog_dataset.sh [-u OWNER/REPO] [-t TAG] STAGE_DIR DATASET_DIR [DATASET_DIR ...]
 #     -u   upload to release TAG in OWNER/REPO (needs gh + auth); the release must exist
-#     -t   release tag (default inputs-v1)
+#     -t   release tag (default v1.0.0)
 #
 # Example (21-class MODIS land use with lakes, from a WPS geog directory):
 #   bash tools/add_geog_dataset.sh -u OWNER/mpas-ic-factory /path/to/stage \
@@ -21,7 +21,7 @@ set -euo pipefail
 die() { echo "ERROR: $*" >&2; exit 1; }
 usage="usage: $0 [-u OWNER/REPO] [-t TAG] STAGE_DIR DATASET_DIR [DATASET_DIR ...]"
 
-upload_repo="" tag="inputs-v1"
+upload_repo="" tag="v1.0.0"
 while getopts "u:t:" opt; do
   case $opt in
     u) upload_repo=$OPTARG ;;

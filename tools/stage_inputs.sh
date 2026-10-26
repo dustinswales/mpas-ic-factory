@@ -7,7 +7,7 @@
 # Usage:
 #   tools/stage_inputs.sh [-u OWNER/REPO] [-t TAG] STAGE_DIR
 #     -u   also create the release TAG in OWNER/REPO and upload (needs gh + auth)
-#     -t   release tag (default inputs-v1)
+#     -t   release tag (default v1.0.0)
 #
 # Source locations (override with environment variables). Defaults follow the
 # layout used by barlage/mpas_testcase create_case on Ursa.
@@ -26,7 +26,7 @@ set -euo pipefail
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
-upload_repo="" tag="inputs-v1"
+upload_repo="" tag="v1.0.0"
 while getopts "u:t:" opt; do
   case $opt in
     u) upload_repo=$OPTARG ;;

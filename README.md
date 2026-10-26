@@ -39,7 +39,10 @@ Actions → **Create MPAS cases** → *Run workflow*. The inputs are:
 - **inputs_tag**: the release holding the input bundles (see below).
 - **baseline_tag**: a previously published release to compare against with `nccmp -dsSqf`. The result appears in the run summary.
 - **publish_tag**: publish this run's cases as a new release, one `<case_dir>.tar` per case.
-- **precision** and **debug**: build options.
+- **static_tag**: a release of prebuilt static files (see *Prebuilt static files*). The static step downloads the ones it finds there and computes any that are missing; blank computes them all in CI.
+- **static_runner**: runner label for the static job, e.g. a larger runner if your GitHub plan has them.
+- **precision**: build option.
+- **debug**: `on` builds with `-g`, bounds checking and backtraces; `on+fpe` also traps floating-point exceptions (MPAS's own debug flags).
 
 The run has five stages:
 
@@ -53,7 +56,7 @@ Graph partitions are generated with `gpmetis` for the runner's core count, so no
 
 ## Input bundles (one-time setup)
 
-GitHub runners cannot see `/scratch4`. The inputs therefore live as assets of a release in this repository (default tag `inputs-v1`). `scripts/fetch_inputs.sh` downloads them and checks them against `MANIFEST.sha256`:
+GitHub runners cannot see `/scratch4`. The inputs therefore live as assets of a release in this repository (default tag `v1.0.0`). `scripts/fetch_inputs.sh` downloads them and checks them against `MANIFEST.sha256`:
 
 | bundle | contents |
 |---|---|
@@ -70,14 +73,36 @@ tools/stage_inputs.sh /path/to/stage                      # package only
 tools/stage_inputs.sh -u OWNER/mpas-ic-factory /path/to/stage   # package and upload (needs gh)
 ```
 
-Override the source paths with `SYSTEM_DIR`, `GLOBAL_GRID_DIR`, `CONUS_GRID_DIR`, `UNGRIB_DIR`, `AEROSOL_FILE`, `GEOG_DIR` or `GEOG_SUBDIRS` (see the script header). To change inputs later, stage a new tag (`-t inputs-v2`) rather than overwriting the old one; the static cache is keyed on the tag.
+Override the source paths with `SYSTEM_DIR`, `GLOBAL_GRID_DIR`, `CONUS_GRID_DIR`, `UNGRIB_DIR`, `AEROSOL_FILE`, `GEOG_DIR` or `GEOG_SUBDIRS` (see the script header). To change inputs later, stage a new tag (`-t v2.0.0`) rather than overwriting the old one; the static cache is keyed on the tag.
+
+## Prebuilt static files
+
+The static step reads the large geographic datasets and is slow, but it depends only on the code version and the static namelist. To skip it in CI, package static files already made on HPC:
+
+```bash
+bash tools/stage_static.sh -u OWNER/mpas-ic-factory -t static-v1 \
+    /path/to/create_case/output /path/to/stage
+```
+
+`SOURCE_DIR` can be any directory holding `*<domain>.120km.static.nc` and `*<domain>.120km.ugwp_oro_data.nc` for conus and global, including a `mpas_testcase` baseline directory (the `gsl.gsl.` names are renamed on the way in). Then run the workflow with `static_tag=static-v1`. Static files the release does not have, such as the `lakes` variant, are still computed in CI. Make a new tag whenever the code version that should produce the static files changes.
+
+## Static variants and MODIS land use with lakes
+
+A case with `static_variant: X` in `cases.yaml` uses the step-1 namelist in `case_files/step1_static_X/` and gets its own static file. `conus_rapw` and `conus_raps` use the `lakes` variant: `config_landuse_data = 'MODIFIED_IGBP_MODIS_NOAH_LAKES'`, 21-class MODIS land use with lakes as category 21 (from `patches/mpas/0002`). It reads the WPS dataset `modis_landuse_20class_30s_with_lakes`, which is added to an existing inputs release with:
+
+```bash
+bash tools/add_geog_dataset.sh -u OWNER/mpas-ic-factory /path/to/stage \
+    /path/to/WPS_GEOG/modis_landuse_20class_30s_with_lakes
+```
+
+`fetch_inputs.sh` fetches every `geog-<dataset>` bundle whenever `geog` is requested.
 
 ## Running by hand
 
 ```bash
 conda env create -f env/environment.yml && conda activate mpas-ic   # or your own modules
 scripts/build_init_atmosphere.sh /path/to/MPAS-Model bin/init_atmosphere_model
-scripts/fetch_inputs.sh -r OWNER/mpas-ic-factory -t inputs-v1 -d inputs \
+scripts/fetch_inputs.sh -r OWNER/mpas-ic-factory -t v1.0.0 -d inputs \
     grids geog aerosols ungrib-gfs.2023031015 ungrib-sst.2023031015
 scripts/create_case.sh -c conus_gfs -e bin/init_atmosphere_model -i inputs -o cases -n 8
 ```
@@ -102,6 +127,10 @@ scripts/build_init_atmosphere.sh
 scripts/fetch_inputs.sh   release bundles -> input tree
 scripts/compare_cases.sh  nccmp report
 tools/stage_inputs.sh     input tree -> release bundles (run once on HPC)
+tools/add_geog_dataset.sh add one geographic dataset to an existing inputs release
+tools/stage_static.sh     existing static files -> release bundles (optional)
+tools/check_intermediate.py  scan ungrib intermediate files for NaN/Inf and damaged records
+patches/mpas/             local fixes applied to MPAS before building (see its README)
 env/environment.yml       conda-forge toolchain
 .github/workflows/        create-cases.yml, lint.yml
 ```
@@ -110,5 +139,5 @@ env/environment.yml       conda-forge toolchain
 
 The workflow is written for standard GitHub-hosted Linux runners. On public repositories these have 4 vCPU and 16 GB of memory; on private repositories, 2 vCPU and 7 GB.
 
-- The global static step on 4 cores is the long pole, with a 340-minute timeout. Because the static result is cached, it runs only once per code commit.
+- The global static step is the long pole. GitHub-hosted jobs stop after 6 hours, and on a 4-core runner the global static file may not finish in time (the job is then killed with signal 15). Use **static_tag** or a larger **static_runner** for it. A computed static file is cached only when its job succeeds.
 - The `geog` bundle has to fit on the runner disk. The static job frees about 20 GB before downloading it.
