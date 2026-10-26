@@ -6,6 +6,7 @@ channels:
 dependencies:
   - python=3.12
   - pyyaml
+  - numpy
   - make
   - gcc=14
   - gxx=14

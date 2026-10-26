@@ -37,9 +37,10 @@ on:
         type: choice
         options: [single, double]
       debug:
-        description: Debug build (bounds and FPE checks)
-        default: false
-        type: boolean
+        description: 'Debug build: on = -g, bounds checks, backtraces; on+fpe = also trap floating-point exceptions'
+        default: 'off'
+        type: choice
+        options: ['off', 'on', 'on+fpe']
 
 concurrency:
   group: create-cases-${{ github.ref }}
@@ -56,7 +57,8 @@ env:
   INPUTS_REPO: ${{ github.repository }}
   INPUTS_TAG: ${{ inputs.inputs_tag }}
   PRECISION: ${{ inputs.precision }}
-  DEBUG: ${{ inputs.debug }}
+  DEBUG: ${{ inputs.debug != 'off' }}
+  FPE_TRAP: ${{ inputs.debug == 'on+fpe' }}
   GH_TOKEN: ${{ github.token }}
 
 jobs:
@@ -129,7 +131,7 @@ jobs:
             echo "code repo:          $CODE_REPO"
             echo "code ref:           $CODE_REF"
             echo "code commit:        $CODE_SHA"
-            echo "precision:          $PRECISION   debug: $DEBUG"
+            echo "precision:          $PRECISION   debug: $DEBUG   fpe_trap: $FPE_TRAP"
             echo "compiler:           $(gfortran --version | head -1)"
             echo "mpi:                $(mpichversion 2>/dev/null | head -1 || mpiexec --version | head -1)"
             echo "netcdf-c:           $(nc-config --version)"
@@ -220,6 +222,10 @@ jobs:
           bundles=(grids aerosols "ungrib-${{ matrix.source }}.${{ matrix.date }}")
           if [ "${{ matrix.source }}" = gfs ]; then bundles+=("ungrib-sst.${{ matrix.date }}"); fi
           scripts/fetch_inputs.sh -r "$INPUTS_REPO" -t "$INPUTS_TAG" -d inputs "${bundles[@]}"
+      - name: Check intermediate files
+        continue-on-error: true
+        run: |
+          python3 tools/check_intermediate.py inputs/ungrib/*/*:*
       - name: Create init / lbc / sfc_update files
         run: |
           chmod +x bin/init_atmosphere_model

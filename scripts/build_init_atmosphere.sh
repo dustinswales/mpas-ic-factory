@@ -8,7 +8,9 @@
 # Environment:
 #   NETCDF, PNETCDF   library prefixes (default: $CONDA_PREFIX)
 #   PRECISION         "single" (MPAS default) or "double"
-#   DEBUG             "true" for a debug build
+#   DEBUG             "true" for a debug build (-g, -fcheck=all, -fbacktrace)
+#   FPE_TRAP          with DEBUG=true: "true" keeps MPAS's -ffpe-trap=invalid,zero,overflow,
+#                     "false" (default) drops it so bounds errors past a benign FPE are reached
 #   MAKE_JOBS         parallel make jobs (default: nproc)
 set -euo pipefail
 
@@ -27,7 +29,14 @@ jobs=${MAKE_JOBS:-$(nproc)}
 
 cd "$src"
 make_args=(gfortran CORE=init_atmosphere PRECISION="$precision" AUTOCLEAN=true)
-[ "${DEBUG:-false}" = "true" ] && make_args+=(DEBUG=true)
+if [ "${DEBUG:-false}" = "true" ]; then
+  make_args+=(DEBUG=true)
+  if [ "${FPE_TRAP:-false}" != "true" ]; then
+    # Edits the throwaway checkout only.
+    sed -i 's/ -ffpe-trap=invalid,zero,overflow//' Makefile
+    echo "Debug build without -ffpe-trap (set FPE_TRAP=true to keep it)"
+  fi
+fi
 
 echo "Building init_atmosphere in $src: ${make_args[*]} (NETCDF=$NETCDF PNETCDF=$PNETCDF)"
 mpif90 --version | head -1
