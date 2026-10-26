@@ -125,6 +125,11 @@ if want init || want lbc; then
 fi
 if want sst; then [ -d "$ungrib_sst" ] || die "missing $ungrib_sst"; fi
 
+# MPAS needs a large stack (the MPAS user guide says "ulimit -s unlimited");
+# the 8 MB default segfaults init_atmosphere on some compilers/inputs.
+ulimit -s unlimited 2>/dev/null || ulimit -s "$(ulimit -H -s)" 2>/dev/null || true
+export OMP_STACKSIZE=${OMP_STACKSIZE:-512M}
+
 banner "Configuration settings"
 cat <<EOF
 case:               $case_id ($case_dir)
@@ -136,6 +141,7 @@ input dir:          $input_dir
 work dir:           $work
 output dir:         $final
 ntasks:             $ntasks  (launcher: $MPIRUN)
+stack limit:        $(ulimit -s)
 use_climo_aerosols: $use_climo_aerosols
 EOF
 
@@ -171,12 +177,22 @@ run_init_atmosphere() {  # $1 = expected output file
   local t0=$SECONDS rc=0
   $MPIRUN "$ntasks" ./init_atmosphere_model || rc=$?
   echo "init_atmosphere_model finished in $((SECONDS - t0)) s (rc=$rc)"
-  if [ $rc -ne 0 ] || [ ! -s "$1" ] || ls log.init_atmosphere.*.err >/dev/null 2>&1; then
-    for f in log.init_atmosphere.0000.out log.init_atmosphere.*.err; do
-      [ -e "$f" ] && { echo "---- tail $f"; tail -40 "$f"; }
-    done
-    [ -s "$1" ] || die "$1 was not created in $PWD"
-    [ $rc -eq 0 ] || die "init_atmosphere_model exited with $rc in $PWD"
+  local errs=(log.init_atmosphere.*.err)
+  [ -e "${errs[0]}" ] || errs=()
+  if [ $rc -ne 0 ] || [ ! -s "$1" ]; then
+    # Full .out log first, then the warnings/errors, so the cause ends up at the
+    # bottom of the CI log. ("SEAICE_FRACTIONAL/OMLD file not found" lines are
+    # informational: those are optional inputs.)
+    if [ -e log.init_atmosphere.0000.out ]; then
+      echo "---- tail -80 log.init_atmosphere.0000.out"; tail -80 log.init_atmosphere.0000.out
+    fi
+    for f in "${errs[@]}"; do echo "---- $f"; cat "$f"; done
+    echo "---- ERROR/CRITICAL lines"
+    grep -hE "ERROR|CRITICAL" log.init_atmosphere.* 2>/dev/null | sort -u || echo "(none in logs)"
+    [ -s "$1" ] || die "$1 was not created in $PWD (rc=$rc)"
+    die "init_atmosphere_model exited with $rc in $PWD"
+  elif [ ${#errs[@]} -gt 0 ]; then
+    echo "---- warnings (run succeeded)"; cat "${errs[@]}"
   fi
 }
 

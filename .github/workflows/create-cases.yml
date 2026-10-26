@@ -239,6 +239,18 @@ jobs:
           path: out/${{ matrix.case_dir }}/
           retention-days: 30
           compression-level: 1
+      - name: Upload run directories on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed.${{ matrix.case_dir }}
+          path: |
+            out/${{ matrix.case_dir }}/step*/log.*
+            out/${{ matrix.case_dir }}/step*/namelist.init_atmosphere
+            out/${{ matrix.case_dir }}/step*/streams.init_atmosphere
+            out/${{ matrix.case_dir }}/case_files/
+          retention-days: 7
+          if-no-files-found: ignore
 
   report:
     needs: [setup, case]
