@@ -12,9 +12,36 @@ runs:
     - name: Export toolchain settings
       shell: bash -el {0}
       run: |
-        echo "NETCDF=$CONDA_PREFIX" >> "$GITHUB_ENV"
-        echo "PNETCDF=$CONDA_PREFIX" >> "$GITHUB_ENV"
-        echo "MPIRUN=mpiexec -n" >> "$GITHUB_ENV"
-        echo "NTASKS=$(nproc)" >> "$GITHUB_ENV"
+        {
+          echo "NETCDF=$CONDA_PREFIX"
+          echo "PNETCDF=$CONDA_PREFIX"
+          echo "MPIRUN=mpiexec -n"
+          echo "NTASKS=$(nproc)"
+          # conda-forge MPICH runs over UCX. Some runner VMs have an Azure MANA NIC
+          # that UCX tries to drive through verbs, and MPI_Init then fails
+          # ("failed to create UD QP ... Operation not supported"). Everything runs
+          # on one node, so allow only shared memory and TCP (no verbs/InfiniBand).
+          echo "UCX_TLS=self,sm,tcp"
+          echo "UCX_WARN_UNUSED_ENV_VARS=n"
+        } >> "$GITHUB_ENV"
         mpif90 --version | head -1
         mpiexec --version | head -2
+    - name: MPI smoke test
+      shell: bash -el {0}
+      run: |
+        d=$(mktemp -d)
+        cat > "$d/hello.f90" <<'EOF'
+        program hello
+          use mpi
+          implicit none
+          integer :: ierr, rank, nprocs
+          call MPI_Init(ierr)
+          call MPI_Comm_rank(MPI_COMM_WORLD, rank, ierr)
+          call MPI_Comm_size(MPI_COMM_WORLD, nprocs, ierr)
+          call MPI_Barrier(MPI_COMM_WORLD, ierr)
+          if (rank == 0) print '(a,i0,a)', 'MPI OK with ', nprocs, ' tasks'
+          call MPI_Finalize(ierr)
+        end program hello
+        EOF
+        mpif90 -o "$d/hello" "$d/hello.f90"
+        $MPIRUN "$NTASKS" "$d/hello"
